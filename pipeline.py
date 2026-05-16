@@ -20,24 +20,19 @@ for v in OWASP.values():
             OWASP_INDEX[sig_name] = v
 
 SIGNAL_MAP["safe"] = 0
-SIGNAL_MAP["auth_state_flip"] = 10
+SIGNAL_MAP["auth_state_flip"] = 12
 
 STATIC_EXT = {".js",".css",".png",".jpg",".jpeg",".gif",".svg",".ico",".woff",".woff2",".map"}
 
 def is_noise(url):
-    if not url:
-        return True
-
-    url_str = str(url).lower()
-    path = urlparse(url_str).path if "://" in url_str else url_str.split("?")[0]
-    return any(path.endswith(ext) for ext in STATIC_EXT)
+    if not url: return True
+    path = urlparse(url.lower()).path
+    if any(path.endswith(ext) for ext in STATIC_EXT):
+        if not any(x in path for x in ["/api", "/v", "/graphql", "doc", "swagger"]):
+            return True
+    return False
 
 def fuzzy_find_token(obj) -> str:
-    """
-    核心黑科技：全物件深度優先模糊搜尋 (Fuzzy Flatten Scan)
-    不論 Token 叫什麼名字、埋在多深的巢狀 JSON/Headers 裡，都能自動掘出並分類身分
-    """
-
     obj_str = str(obj).lower()
     if not any(x in obj_str for x in ["token", "auth", "bearer", "cookie", "jwt", "session"]):
         return "none"
@@ -51,7 +46,6 @@ def fuzzy_find_token(obj) -> str:
                     if "admin" in v_str: return "admin"
                     if "user" in v_str: return "user"
                     return "present"
-
             if isinstance(v, (dict, list)):
                 res = fuzzy_find_token(v)
                 if res != "none": return res
@@ -65,7 +59,6 @@ def fuzzy_find_token(obj) -> str:
             if isinstance(item, (dict, list)):
                 res = fuzzy_find_token(item)
                 if res != "none": return res
-
     return "none"
 
 def normalize(req):
@@ -85,7 +78,7 @@ def normalize(req):
     return {
         "method": str(req.get("method", "GET")).upper(),
         "path": path,
-        "status": int(req.get("status", req.get("responseStatus", 0))), 
+        "status": int(req.get("status", req.get("responseStatus", 0))),
         "has_token": has_token,
         "token_label": token_label,
         "query": query
@@ -93,29 +86,35 @@ def normalize(req):
 
 def heuristic(r):
     s = 0
+    path_low = r["path"].lower()
     if r["has_token"]: s += 5
-    if "/api" in r["path"]: s += 5
+    if "/api" in path_low: s += 5
     if r["status"] in (401,403): s += 8
     if r["status"] == 500: s += 5
+    if any(x in path_low for x in ["/admin", "/user", "/account", "/profile"]):
+        s += 10
     return s
 
 def apply_guardrails(signals, method, path, query):
     path_l = path.lower()
     q = query.lower()
-
     filtered = []
 
     for s in signals:
         if s == "safe":
             filtered.append("safe")
             continue
-
+            
         if s == "auth_state_flip":
             filtered.append(s)
             continue
 
+        if s in ["idor_sig", "priv_anomaly"]:
+            filtered.append(s)
+            continue
+
         rule = OWASP_INDEX.get(s)
-        if not rule:
+        if not rule: 
             continue
 
         if s == "rce_file_upload_hint" and method not in ("POST", "PUT"):
@@ -131,7 +130,7 @@ def apply_guardrails(signals, method, path, query):
 
     if len(filtered) > 1 and "safe" in filtered:
         filtered = [f for f in filtered if f != "safe"]
-
+        
     return filtered or ["safe"]
 
 def process_requests(data):
@@ -139,29 +138,40 @@ def process_requests(data):
     results = []
 
     for r in data:
-        if is_noise(r.get("url") or r.get("path")):
-            continue
-        
+        if is_noise(r.get("url") or r.get("path")): continue
         c = normalize(r)
         key = f"{c['method']}:{c['path']}"
         groups[key].append(c)
 
     for key, reqs in groups.items():
         method, path = key.split(":", 1)
+        path_low = path.lower()
 
         base = max(heuristic(r) for r in reqs)
 
         status_set = set(r["status"] for r in reqs)
-        if len(status_set) > 1:
-            base += 5
+        token_set = set(r["token_label"] for r in reqs)
+        
+        has_status_variance = len(status_set) > 1
+        has_identity_variance = len(token_set) > 1
 
-        if len(reqs) == 1 and base < 5:
-            continue
+        if has_status_variance: base += 6
+        if has_identity_variance: base += 8
 
         llm = ask_llm(reqs, method, path)
         signals = llm.get("signals") or ["safe"]
+
+        if any(x in path_low for x in ["{id}", "{uuid}", "{hash}"]) and 200 in status_set and 403 in status_set:
+            if "object_access_variance" not in signals and "idor_sig" not in signals:
+                signals.append("idor_sig")
+
+        if "admin" in path_low and "admin" in token_set and "user" in token_set:
+            if "unauthorized_access_observed" not in signals and "priv_anomaly" not in signals:
+                signals.append("priv_anomaly")
+
         query = " ".join(r["query"] for r in reqs)
         signals = apply_guardrails(signals, method, path, query)
+        
         signal_score = sum(SIGNAL_MAP.get(s, 0) for s in signals)
 
         try:
