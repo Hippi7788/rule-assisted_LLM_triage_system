@@ -120,5 +120,26 @@
     "length": 15000,
     "token": null,
     "timestamp": 1715560170
+  },
+  {
+    "method": "POST",
+    "url": "/api/v1/gateway",
+    "status": 200,
+    "length": 3500,
+    "token": "user_token_xyz",
+    "json": {
+      "action": "fetch_remote_resource",
+      "url": "http://10.0.0"
+    },
+    "timestamp": 1715560180
+  },
+  {
+    "method": "POST",
+    "url": "/api/v1/gateway",
+    "status": 500,
+    "length": 450,
+    "token": "user_token_xyz",
+    "data": "filename=../../../../windows/win.ini&action=read",
+    "timestamp": 1715560185
   }
 ]
