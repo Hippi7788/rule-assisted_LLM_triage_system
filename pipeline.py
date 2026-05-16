@@ -82,6 +82,20 @@ def normalize(req):
     token_label = fuzzy_find_token(req)
     has_token = (token_label != "none")
 
+    body_content = []
+    for body_key in ["body", "data", "json", "params"]:
+        if body_key in req and req[body_key]:
+            body_content.append(str(req[body_key]).lower())
+            
+    if not body_content and str(req.get("method", "")).upper() in ("POST", "PUT", "PATCH"):
+        known_keys = {"url", "path", "method", "status", "responseStatus", "headers", "token", "timestamp", "length"}
+        potential_body = {k: v for k, v in req.items() if k not in known_keys}
+        if potential_body:
+            body_content.append(str(potential_body).lower())
+
+    if body_content:
+        query = f"{query} {' '.join(body_content)}".strip()
+
     return {
         "method": str(req.get("method", "GET")).upper(),
         "path": path,
