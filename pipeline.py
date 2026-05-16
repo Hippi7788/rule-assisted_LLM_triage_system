@@ -21,7 +21,7 @@ for v in OWASP.values():
             OWASP_INDEX[sig_name] = v 
 
 SIGNAL_MAP["safe"] = 0
-SIGNAL_MAP["auth_state_flip"] = 10
+SIGNAL_MAP["auth_flip"] = 10
 STATIC_EXT = {".js",".css",".png",".jpg",".jpeg",".gif",".svg",".ico",".woff",".woff2",".map"}
 
 def is_noise(url):
