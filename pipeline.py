@@ -78,11 +78,11 @@ def apply_guardrails(signals, method, path, query):
 
         if s == "rce_file_upload_hint" and method not in ("POST", "PUT"):
             continue
-            
-        if not (
-            any(k in path_l for k in rule.get("path_keywords", [])) or
-            any(k in q for k in rule.get("param_keywords", []))
-        ):
+
+        has_path_match = any(k in path_l for k in rule.get("path_keywords", []))
+        has_param_match = any(k in q for k in rule.get("param_keywords", []))
+
+        if not (has_path_match or has_param_match):
             continue
 
         filtered.append(s)
