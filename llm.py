@@ -33,6 +33,7 @@ TAGS PRIORITY (MUST SELECT ONLY FROM THIS LIST):
 - safe (default, must dominate)
 
 API Endpoint Context: {method} {path}
+Number of observations in this endpoint group: {len(req_list)}
 
 Access History Matrix:
 {history_str}
@@ -69,6 +70,13 @@ def ask_llm_with_context(method: str, path: str, req_list: list) -> dict:
         }
     }
 
+    default_fallback = {
+        "score": 0,
+        "tags": ["safe"],
+        "confidence": 0.0,
+        "reason": "rule: fallback"
+    }
+
     try:
         r = requests.post(OLLAMA_URL, json=payload, timeout=20)
         r.raise_for_status()
@@ -78,25 +86,22 @@ def ask_llm_with_context(method: str, path: str, req_list: list) -> dict:
         try:
             res_obj = json.loads(cleaned_json)
         except json.JSONDecodeError:
-            return {
-                "score": 0,
-                "tags": ["safe"],
-                "confidence": 0.0,
-                "reason": "json_parse_failed"
-            }
+            fb = default_fallback.copy()
+            fb["reason"] = "rule: fallback (json_parse_failed)"
+            return fb
         
         if isinstance(res_obj, dict):
             allowed_tags = {"idor", "priv-esc", "auth-flow", "auth-bypass", "safe"}
             if "tags" in res_obj and isinstance(res_obj["tags"], list):
                 res_obj["tags"] = [t for t in res_obj["tags"] if t in allowed_tags]
+            
+            if "confidence" not in res_obj:
+                res_obj["confidence"] = 0.5
             return res_obj
 
     except Exception as e:
-        return {
-            "score": 0,
-            "tags": ["safe"],
-            "confidence": 0.0,
-            "reason": f"api_error: {str(e)}"
-        }
+        fb = default_fallback.copy()
+        fb["reason"] = f"rule: fallback (api_error: {str(e)})"
+        return fb
         
-    return {"score": 0, "tags": ["safe"], "confidence": 0.0, "reason": "invalid_llm_output"}
+    return default_fallback
