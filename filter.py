@@ -22,16 +22,13 @@ def is_noise(url: str) -> bool:
     return False
 
 def check_auth_present(req: dict) -> bool:
-    """
-    動態檢查 Request 是否包含認證憑證
-    相容直接包含 token 欄位，或包含常規 Burp Headers 的情況
-    """
     if req.get("token"):
         return True
         
     headers = req.get("headers", "")
+
     if isinstance(headers, list):
-        headers = "".join(headers)
+        headers = " ".join(map(str, headers))
     elif isinstance(headers, dict):
         headers = str(headers)
         
@@ -44,9 +41,10 @@ def normalize(req: dict) -> dict:
     parsed = urlparse(url)
     path = parsed.path if parsed.path else "/"
 
-    path = re.sub(r"/\d+", "/{id}", path)
-    path = re.sub(r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "/{uuid}", path)
+    uuid_pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    path = re.sub(f"/{uuid_pattern}", "/{uuid}", path)
     path = re.sub(r"/[0-9a-fA-F]{32}", "/{hash}", path)
+    path = re.sub(r"/\d+", "/{id}", path)
 
     param_count = 0
     if parsed.query:
