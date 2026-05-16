@@ -13,7 +13,6 @@ def main():
 
     try:
         data = load(sys.argv[1])
-        # 容錯處理：確保讀入的是清單
         if not isinstance(data, list):
             print("[!] Error: JSON file must contain a list of requests.")
             return
