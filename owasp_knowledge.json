@@ -6,7 +6,7 @@
     "weight": 20
   },
   "A01:Broken Access Control (IDOR-Write/Delete)": {
-    "signal": "idor_sig",
+    "signal": "idor_write_delete",
     "path_keywords": ["delete", "remove", "update", "edit", "cancel", "modify", "destroy"],
     "param_keywords": ["id", "uid", "uuid", "hash", "user_id", "order_id", "item_id"],
     "weight": 28
@@ -18,61 +18,61 @@
     "weight": 22
   },
   "A02:Cryptographic Failures (JWT/OAuth)": {
-    "signal": "auth_flip",
+    "signal": "oauth_jwt_anomaly",
     "path_keywords": ["oauth", "jwt", "token", "session", "auth", "login", "callback", "sso", "authorize", "openid"],
     "param_keywords": ["token", "code", "state", "access_token", "id_token", "jwt", "session_id"],
     "weight": 25
   },
   "A03:Injection (XSS/SQLi)": {
-    "signal": "priv_anomaly",
+    "signal": "xss_sqli_injection",
     "path_keywords": ["search", "query", "filter", "find", "comment", "feedback", "msg", "message", "chat", "post"],
     "param_keywords": ["q", "search", "keyword", "name", "text", "msg", "comment", "desc", "title", "input"],
     "weight": 15
   },
   "A03:Injection (Command/RCE)": {
-    "signal": "priv_anomaly",
+    "signal": "cmd_rce_injection",
     "path_keywords": ["exec", "run", "cmd", "command", "shell", "execute", "ping", "system", "process", "render"],
     "param_keywords": ["cmd", "command", "ip", "host", "exec", "script", "arg", "args", "payload"],
     "weight": 30
   },
   "A04:Insecure Design (FileUpload/RCE)": {
-    "signal": "priv_anomaly",
+    "signal": "rce_file_upload_hint",
     "path_keywords": ["upload", "avatar", "file", "import", "media", "image", "doc", "pdf", "attachment"],
     "param_keywords": ["file", "filename", "ext", "type", "upload", "attachment"],
     "weight": 30
   },
   "A05:Security Misconfiguration (XML/XXE)": {
-    "signal": "priv_anomaly",
+    "signal": "xxe_injection",
     "path_keywords": ["xml", "soap", "saml", "api", "parse"],
     "param_keywords": ["xml", "data", "body", "doc", "payload"],
     "weight": 26
   },
   "A05:Security Misconfiguration (CORS)": {
-    "signal": "priv_anomaly",
+    "signal": "cors_leakage",
     "path_keywords": ["crossdomain", "cors", "origin", "allow"],
     "param_keywords": ["origin", "callback"],
     "weight": 18
   },
   "A07:Identification & Authentication Failures": {
-    "signal": "auth_flip",
+    "signal": "auth_flow_anomaly",
     "path_keywords": ["login", "signin", "logout", "signup", "register", "password", "reset", "forgot", "otp", "mfa", "2fa"],
     "param_keywords": ["password", "otp", "code", "email", "username", "user", "new_password"],
     "weight": 20
   },
   "A10:Server-Side Request Forgery (SSRF)": {
-    "signal": "priv_anomaly",
+    "signal": "ssrf_candidate",
     "path_keywords": ["webhook", "proxy", "redirect", "fetch", "callback", "url", "link", "external", "request"],
     "param_keywords": ["url", "redirect", "link", "src", "host", "target", "dest", "path", "uri", "domain"],
     "weight": 25
   },
   "CWE-22:Path Traversal & LFI": {
-    "signal": "priv_anomaly",
+    "signal": "lfi_directory_traversal",
     "path_keywords": ["download", "view", "read", "template", "file", "export", "load", "include", "source"],
     "param_keywords": ["file", "path", "dir", "doc", "page", "template", "filepath", "name", "resource"],
     "weight": 25
   },
   "Business Logic:Parameter Tampering": {
-    "signal": "idor_sig",
+    "signal": "parameter_tampering",
     "path_keywords": ["checkout", "cart", "pay", "order", "price", "coupon", "discount", "wallet", "transfer"],
     "param_keywords": ["amount", "price", "qty", "quantity", "cost", "total", "coupon", "discount_code"],
     "weight": 24
