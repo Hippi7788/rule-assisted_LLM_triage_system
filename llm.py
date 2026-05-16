@@ -13,7 +13,7 @@ def build_prompt(req_list, method, path):
 
     return f"""You are a security signal extractor for an endpoint group. Do NOT decide vulnerabilities. ONLY extract observable attack signals from the history matrix.
 
-🏷️ ALLOWED ATTACK SIGNALS (MUST SELECT ONLY FROM THIS LIST):
+ALLOWED ATTACK SIGNALS (MUST SELECT ONLY FROM THIS LIST):
 - rce_file_upload_hint: Upload endpoints or actions handling files/templates (Potential RCE).
 - ssrf_candidate: Input parameters or paths dealing with external URLs, links, or hosts (Potential SSRF).
 - lfi_directory_traversal: Parameters or endpoints querying local files, templates, or paths (Potential LFI).
