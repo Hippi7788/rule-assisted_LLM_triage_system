@@ -13,8 +13,9 @@ def heuristic_score(req: dict) -> int:
     if any(x in path for x in ["/admin", "/user", "/account", "/setting", "/profile"]):
         score += 8
 
-    high_risk_actions = ["delete", "upload", "download", "export", "config", "debug", "graphql", "v1/internal"]
-    if any(action in path for action in high_risk_actions):
+    high_risk_actions = ["delete", "upload", "download", "export", "config", "debug", "graphql", "internal"]
+    segments = path.split("/")
+    if any(action in segments for action in high_risk_actions):
         score += 10
 
     if req["status"] in (403, 401):
