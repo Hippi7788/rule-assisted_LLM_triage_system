@@ -1,6 +1,7 @@
 import requests
 import json
 import re
+import time
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "qwen2.5-coder:1.5b"
@@ -10,18 +11,15 @@ def build_prompt(req_list, method, path):
         f"[{i}] {r['method']} {r['path']} | status={r['status']} | auth={r['has_token']}"
         for i, r in enumerate(req_list)
     ])
+    
+    return f"""[Run ID: {int(time.time())}]
+You are a security history analyzer. Extract observed event patterns from the history matrix.
 
-    return f"""You are a security signal extractor for an endpoint group. Do NOT decide vulnerabilities. ONLY extract observable attack signals from the history matrix.
-
-ALLOWED ATTACK SIGNALS (MUST SELECT ONLY FROM THIS LIST):
-- rce_file_upload_hint: Upload endpoints or actions handling files/templates (Potential RCE).
-- ssrf_candidate: Input parameters or paths dealing with external URLs, links, or hosts (Potential SSRF).
-- lfi_directory_traversal: Parameters or endpoints querying local files, templates, or paths (Potential LFI).
-- xss_injection_suspect: Input fields, search bars, or parameters reflecting user input (Potential XSS/SQLi).
-- unauthorized_access_observed: Privilege boundary issues or unauthenticated access to restricted APIs (Vertical Auth).
-- object_access_variance: Accessing different instances of objects across requests (IDOR / Horizontal Auth).
-- auth_state_flip: Explicit presence of BOTH true and false auth status on the same endpoint.
-- safe: No security anomalies or signals observed in the history matrix.
+ALLOWED SIGNALS (SELECT ONLY FROM THIS LIST):
+- idor_sig: Observed multiple requests accessing object-level ID/UUID resource paths.
+- auth_flip: Observed explicit mix of true and false auth status within this group.
+- priv_anomaly: Unauthenticated or low-privilege status returned normal 200 or restricted data.
+- safe: Default signal if no access control anomalies or parameter variances are present.
 
 Return JSON ONLY:
 {{
@@ -29,20 +27,18 @@ Return JSON ONLY:
   "confidence": 0.0
 }}
 
-Endpoint Context: {method} {path}
-Number of Observations: {len(req_list)}
+Endpoint: {method} {path}
+Observations Count: {len(req_list)}
 
 History Matrix:
 {history}
 """
 
 def clean_json_response(raw_response: str) -> str:
-    """物理大括號切片法：防止 Qwen 夾帶 Markdown 標籤或字串未結束導致 json.loads 崩潰"""
     raw_response = raw_response.strip()
     start_idx = raw_response.find("{")
     end_idx = raw_response.rfind("}")
-    if start_idx == -1 or end_idx == -1:
-        return "{}"
+    if start_idx == -1 or end_idx == -1: return "{}"
     return raw_response[start_idx:end_idx+1]
 
 def ask_llm(req_list, method, path):
@@ -54,7 +50,7 @@ def ask_llm(req_list, method, path):
         "options": {
             "temperature": 0.0,
             "num_ctx": 512,
-            "num_predict": 80
+            "num_predict": 60
         }
     }
 
@@ -64,18 +60,7 @@ def ask_llm(req_list, method, path):
         
         cleaned_json = clean_json_response(r.json().get("response", "{}"))
         data = json.loads(cleaned_json)
-        
-        allowed_signals = {
-            "rce_file_upload_hint", 
-            "ssrf_candidate", 
-            "lfi_directory_traversal", 
-            "xss_injection_suspect",
-            "unauthorized_access_observed", 
-            "object_access_variance", 
-            "auth_state_flip",
-            "safe"
-        }
-        
+        allowed_signals = {"idor_sig", "auth_flip", "priv_anomaly", "safe"}
         raw_signals = data.get("signals", [])
         signals = [s for s in raw_signals if s in allowed_signals] if isinstance(raw_signals, list) else []
 
@@ -84,7 +69,4 @@ def ask_llm(req_list, method, path):
             "confidence": min(1.0, max(0.0, float(data.get("confidence", 0.5))))
         }
     except:
-        return {
-            "signals": ["safe"],
-            "confidence": 0.0
-        }
+        return {"signals": ["safe"], "confidence": 0.0}
