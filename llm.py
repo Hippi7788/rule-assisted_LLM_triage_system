@@ -47,14 +47,8 @@ def ask_llm(req: dict) -> dict:
         "prompt": build_prompt(req),
         "stream": False,
         "format": "json",
-        "options": {
-            "temperature": 0.1,
-            "top_p": 0.7,
-            "num_ctx": 512
-        }
+        "options": {"temperature": 0.1, "top_p": 0.7, "num_ctx": 512}
     }
-
-    default_fallback = {"score": 0, "tags": [], "reason": "parse_failed"}
 
     try:
         r = requests.post(OLLAMA_URL, json=payload, timeout=30)
@@ -66,8 +60,17 @@ def ask_llm(req: dict) -> dict:
         
         if isinstance(res_obj, dict):
             return res_obj
-        return default_fallback
+
+        return {
+            "score": 0,
+            "tags": [],
+            "reason": "invalid_llm_output"
+        }
         
     except Exception as e:
-        default_fallback["reason"] = f"error: {str(e)}"
-        return default_fallback
+        return {
+            "score": 0,
+            "tags": [],
+            "reason": f"error: {str(e)}"
+        }
+
