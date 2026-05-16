@@ -141,6 +141,7 @@ def process_requests(data):
     for r in data:
         if is_noise(r.get("url") or r.get("path")):
             continue
+        
         c = normalize(r)
         key = f"{c['method']}:{c['path']}"
         groups[key].append(c)
@@ -156,12 +157,10 @@ def process_requests(data):
 
         if len(reqs) == 1 and base < 5:
             continue
-            
+
         llm = ask_llm(reqs, method, path)
         signals = llm.get("signals") or ["safe"]
-
         query = " ".join(r["query"] for r in reqs)
-
         signals = apply_guardrails(signals, method, path, query)
         signal_score = sum(SIGNAL_MAP.get(s, 0) for s in signals)
 
