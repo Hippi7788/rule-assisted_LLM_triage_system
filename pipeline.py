@@ -28,8 +28,15 @@ STATIC_EXT = {".js",".css",".png",".jpg",".jpeg",".gif",".svg",".ico",".woff",".
 def is_noise(url):
     if not url: return True
     url_str = str(url).lower()
-    path = urlparse(url_str).path if "://" in url_str else url_str.split("?")
-    return any(path.endswith(ext) for ext in STATIC_EXT)
+    
+    if "://" in url_str:
+        path = urlparse(url_str).path if urlparse(url_str).path else "/"
+    else:
+        parts = url_str.split("?")
+        path = parts[0] if parts else "/"
+        
+    path_str = str(path)
+    return any(path_str.endswith(ext) for ext in STATIC_EXT)
 
 def fuzzy_find_token(obj) -> str:
     obj_str = str(obj).lower()
@@ -61,13 +68,14 @@ def fuzzy_find_token(obj) -> str:
 def normalize(req):
     url = req.get("url") or req.get("path") or "/"
     url_str = str(url)
+    
     if "://" in url_str:
         p = urlparse(url_str)
         path = p.path if p.path else "/"
         query = p.query.lower() if p.query else ""
     else:
         parts = url_str.split("?")
-        path = parts[0] if parts else "/"
+        path = parts[0] if parts else "/" 
         query = parts[1].lower() if len(parts) > 1 else ""
 
     path = str(path)
@@ -169,7 +177,6 @@ def process_requests(data):
         ai_signals = llm.get("signals") or ["safe"]
 
         python_enforced = set()
-        
         is_matrix_suspicious = has_status_variance or has_identity_variance or any(s in ai_signals for s in ["idor_sig", "auth_flip", "priv_anomaly"])
 
         if is_matrix_suspicious:
@@ -187,6 +194,7 @@ def process_requests(data):
 
         final_signals = list(set(ai_signals + list(python_enforced)))
         final_signals = apply_guardrails(final_signals, method, path, query_combined, enforced_signals=python_enforced)
+        
         signal_score = sum(SIGNAL_MAP.get(s, 0) for s in final_signals)
 
         try:
