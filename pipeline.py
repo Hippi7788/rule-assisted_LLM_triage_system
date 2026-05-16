@@ -1,137 +1,143 @@
+import json
 import re
 from urllib.parse import urlparse
 from collections import defaultdict
 from llm import ask_llm
 
-STATIC_EXT = {".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".map"}
+try:
+    with open("owasp_knowledge.json", "r", encoding="utf-8") as f:
+        OWASP = json.load(f)
+except:
+    OWASP = {}
 
-def is_noise(url: str) -> bool:
-    if not url: return True
+SIGNAL_MAP = {}
+OWASP_INDEX = {}
+
+for v in OWASP.values():
+    if isinstance(v, dict):
+        sig_name = v.get("signal")
+        if sig_name:
+            SIGNAL_MAP[sig_name] = v.get("weight", 0)
+            OWASP_INDEX[sig_name] = v 
+
+SIGNAL_MAP["safe"] = 0
+SIGNAL_MAP["auth_state_flip"] = 10
+STATIC_EXT = {".js",".css",".png",".jpg",".jpeg",".gif",".svg",".ico",".woff",".woff2",".map"}
+
+def is_noise(url):
+    if not url:
+        return True
     path = urlparse(url.lower()).path
-    if any(path.endswith(ext) for ext in STATIC_EXT):
-        if not any(x in path for x in ["/api", "/v", "/graphql", "doc", "swagger"]):
-            return True
-    return False
+    return any(path.endswith(ext) for ext in STATIC_EXT)
 
-def normalize_and_extract(req: dict) -> dict:
+def normalize(req):
     url = req.get("url", "/")
-    parsed = urlparse(url)
-    path = parsed.path if parsed.path else "/"
+    p = urlparse(url)
+    path = p.path or "/"
 
-    raw_path_last_segment = path.split("/")[-1] if "/" in path else ""
-    raw_query = parsed.query.lower() if parsed.query else ""
-
-    uuid_pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    path = re.sub(f"/{uuid_pattern}", "/{uuid}", path)
-    path = re.sub(r"/[0-9a-fA-F]{32}", "/{hash}", path)
+    path = re.sub(r"/[0-9a-fA-F-]{8,}", "/{id}", path)
     path = re.sub(r"/\d+", "/{id}", path)
 
     headers = str(req.get("headers", "")).lower()
     has_token = bool(req.get("token")) or any(x in headers for x in ["authorization", "bearer", "cookie"])
-    param_count = len([p for p in parsed.query.split("&") if p]) if parsed.query else 0
 
     return {
-        "method": str(req.get("method", "GET")).upper(),
+        "method": req.get("method", "GET").upper(),
         "path": path,
         "status": int(req.get("status", 0)),
         "has_token": has_token,
-        "param_count": param_count,
-        "raw_segment": raw_path_last_segment,
-        "raw_query": raw_query,
-        "raw_url": url
+        "query": p.query.lower() if p.query else ""
     }
 
-def heuristic(req):
-    score = 0
-    path = req["path"].lower()
-    query = req["raw_query"]
+def heuristic(r):
+    s = 0
+    if r["has_token"]: s += 5
+    if "/api" in r["path"]: s += 5
+    if r["status"] in (401,403): s += 8
+    if r["status"] == 500: s += 5
+    return s
 
-    if req["has_token"]: score += 5
-    if "/api" in path: score += 5
-    if any(x in path for x in ["/admin", "/user", "/account", "/profile"]): score += 8
-    if req["status"] in (401, 403): score += 8
-    elif req["status"] == 500: score += 5
-    if req["param_count"] > 2: score += 3
+def apply_guardrails(signals, method, path, query):
+    path_l = path.lower()
+    q = query.lower()
 
-    if any(x in path for x in ["upload", "file", "download", "export", "import"]): score += 12
-    if any(x in query for x in ["url=", "redirect=", "link=", "src=", "host="]): score += 15
-    if any(x in query for x in ["file=", "path=", "dir=", "doc=", "template="]): score += 15
-    if any(x in query for x in ["q=", "search=", "name=", "text=", "msg=", "comment="]): score += 8
+    filtered = []
 
-    return score
+    for s in signals:
+        if s == "safe":
+            filtered.append("safe")
+            continue
 
-SIGNAL_MAP = {
-    "rce_file_upload_hint": 30,
-    "ssrf_candidate": 25,
-    "lfi_directory_traversal": 25,
-    "xss_injection_suspect": 15,
-    "auth_bypass_hint": 20,
-    "unauthorized_access_observed": 20,
-    "object_access_variance": 15,
-    "auth_state_flip": 10,
-    "safe": 0
-}
+        if s == "auth_state_flip":
+            filtered.append(s)
+            continue
 
-def process_requests(requests_data):
-    grouped = defaultdict(list)
+        rule = OWASP_INDEX.get(s)
+        if not rule:
+            continue
+
+        if s == "rce_file_upload_hint" and method not in ("POST", "PUT"):
+            continue
+            
+        if not (
+            any(k in path_l for k in rule.get("path_keywords", [])) or
+            any(k in q for k in rule.get("param_keywords", []))
+        ):
+            continue
+
+        filtered.append(s)
+
+    if len(filtered) > 1 and "safe" in filtered:
+        filtered = [f for f in filtered if f != "safe"]
+
+    return filtered or ["safe"]
+
+def process_requests(data):
+    groups = defaultdict(list)
     results = []
 
-    for r in requests_data:
-        if is_noise(r.get("url", "")): continue
-        cleaned = normalize_and_extract(r)
-        key = f"{cleaned['method']}:{cleaned['path']}"
-        grouped[key].append(cleaned)
+    for r in data:
+        if is_noise(r.get("url")):
+            continue
+        c = normalize(r)
+        key = f"{c['method']}:{c['path']}"
+        groups[key].append(c)
 
-    for key, req_list in grouped.items():
+    for key, reqs in groups.items():
         method, path = key.split(":", 1)
-        base = max(heuristic(r) for r in req_list)
-        path_low = path.lower()
-        status_set = set(r["status"] for r in req_list)
-        auth_set = set(r["has_token"] for r in req_list)
-        segment_set = set(r["raw_segment"] for r in req_list)
-        query_combined = " ".join(r["raw_query"] for r in req_list)
 
-        has_status_variance = len(status_set) > 1
-        has_auth_variance = len(auth_set) > 1
-        has_object_variance = len(segment_set) > 1 and any(x in path_low for x in ["{id}", "{uuid}", "{hash}"])
+        base = max(heuristic(r) for r in reqs)
 
-        if has_auth_variance: base += 5
-        if has_status_variance: base += 4
-        if has_object_variance: base += 5  
+        status_set = set(r["status"] for r in reqs)
+        if len(status_set) > 1:
+            base += 5
 
-        llm = ask_llm(req_list, method, path)
+        if len(reqs) == 1 and base < 5:
+            continue
+
+        llm = ask_llm(reqs, method, path)
         signals = llm.get("signals") or ["safe"]
 
-        if not any(x in query_combined or x in path_low for x in ["url", "redirect", "link", "src", "host"]):
-            signals = [s for s in signals if s != "ssrf_candidate"]
-            
-        if not any(x in query_combined or x in path_low for x in ["file", "path", "dir", "doc", "download", "template"]):
-            signals = [s for s in signals if s != "lfi_directory_traversal"]
+        query = " ".join(r["query"] for r in reqs)
 
-        if method not in ("POST", "PUT") and "upload" not in path_low:
-            signals = [s for s in signals if s != "rce_file_upload_hint"]
-
-        if not any(x in path_low for x in ["{id}", "{uuid}", "{hash}", "/user/", "/file/", "/order/", "/account/"]):
-            signals = [s for s in signals if s != "object_access_variance"]
+        signals = apply_guardrails(signals, method, path, query)
 
         signal_score = sum(SIGNAL_MAP.get(s, 0) for s in signals)
-        
+
         try:
             confidence = float(llm.get("confidence", 0.5))
         except (ValueError, TypeError):
             confidence = 0.5
         confidence = max(0.0, min(1.0, confidence))
 
-        base_weight = 0.8
-        signal_weight = 0.2
-        final_score = (base * base_weight) + (signal_score * signal_weight)
-        final_score *= (0.5 + confidence)
+        final = (base * 0.8 + signal_score * 0.2)
+        final *= (0.75 + confidence * 0.5)
 
         results.append({
-            "score": round(final_score, 2),
+            "score": round(final, 2),
             "method": method,
             "path": path,
-            "signals": signals if signals else ["safe"],
+            "signals": signals,
             "confidence": confidence
         })
 
