@@ -42,13 +42,15 @@ def clean_json_response(raw_response: str) -> str:
     return raw_response[start_idx:end_idx+1]
 
 def ask_llm(req_list, method, path):
+    dynamic_temp = 0.0 + (int(time.time() * 1000) % 10) * 0.001 
+
     payload = {
         "model": MODEL,
         "prompt": build_prompt(req_list, method, path),
         "stream": False,
         "format": "json",
         "options": {
-            "temperature": 0.0,
+            "temperature": dynamic_temp,
             "num_ctx": 512,
             "num_predict": 60
         }
@@ -60,6 +62,7 @@ def ask_llm(req_list, method, path):
         
         cleaned_json = clean_json_response(r.json().get("response", "{}"))
         data = json.loads(cleaned_json)
+        
         allowed_signals = {"idor_sig", "auth_flip", "priv_anomaly", "safe"}
         raw_signals = data.get("signals", [])
         signals = [s for s in raw_signals if s in allowed_signals] if isinstance(raw_signals, list) else []
