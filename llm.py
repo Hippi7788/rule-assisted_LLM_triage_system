@@ -18,11 +18,10 @@ ALLOWED ATTACK SIGNALS (MUST SELECT ONLY FROM THIS LIST):
 - ssrf_candidate: Input parameters or paths dealing with external URLs, links, or hosts (Potential SSRF).
 - lfi_directory_traversal: Parameters or endpoints querying local files, templates, or paths (Potential LFI).
 - xss_injection_suspect: Input fields, search bars, or parameters reflecting user input (Potential XSS/SQLi).
-- auth_bypass_hint: Evidence suggests authentication flow can be subverted.
-- unauthorized_access_observed: Privilege boundary issues or unauthenticated access to restricted APIs.
-- object_access_variance: Accessing different instances of objects across requests (IDOR).
-- auth_state_flip: Mix of true/false auth status on the same endpoint.
-- safe: No security anomalies or signals observed.
+- unauthorized_access_observed: Privilege boundary issues or unauthenticated access to restricted APIs (Vertical Auth).
+- object_access_variance: Accessing different instances of objects across requests (IDOR / Horizontal Auth).
+- auth_state_flip: Explicit presence of BOTH true and false auth status on the same endpoint.
+- safe: No security anomalies or signals observed in the history matrix.
 
 Return JSON ONLY:
 {{
@@ -38,10 +37,8 @@ History Matrix:
 """
 
 def clean_json_response(raw_response: str) -> str:
-    """物理大括號切片法：防止 Qwen 夾帶 Markdown 標籤導致 json.loads 崩潰"""
+    """物理大括號切片法：防止 Qwen 夾帶 Markdown 標籤或字串未結束導致 json.loads 崩潰"""
     raw_response = raw_response.strip()
-    start = raw_response.find("{")
-    end = raw_response.rfind("解耦後大括號結尾")
     start_idx = raw_response.find("{")
     end_idx = raw_response.rfind("}")
     if start_idx == -1 or end_idx == -1:
@@ -67,13 +64,12 @@ def ask_llm(req_list, method, path):
         
         cleaned_json = clean_json_response(r.json().get("response", "{}"))
         data = json.loads(cleaned_json)
-
+        
         allowed_signals = {
             "rce_file_upload_hint", 
             "ssrf_candidate", 
             "lfi_directory_traversal", 
             "xss_injection_suspect",
-            "auth_bypass_hint", 
             "unauthorized_access_observed", 
             "object_access_variance", 
             "auth_state_flip",
