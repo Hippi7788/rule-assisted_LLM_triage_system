@@ -1,106 +1,124 @@
 [
   {
     "method": "GET",
-    "url": "/",
+    "url": "/api/v1/images/fetch?url=http://169.254.169",
     "status": 200,
-    "length": 1200,
-    "token": null,
-    "timestamp": 1715560001
+    "length": 4500,
+    "token": "user_token_abc",
+    "timestamp": 1715560101
   },
   {
     "method": "GET",
-    "url": "/login",
-    "status": 200,
-    "length": 800,
-    "token": null,
-    "timestamp": 1715560005
+    "url": "/api/v1/images/fetch?url=http://localhost:8080/debug/vars",
+    "status": 500,
+    "length": 1200,
+    "token": "user_token_abc",
+    "timestamp": 1715560105
   },
   {
     "method": "POST",
-    "url": "/api/login",
+    "url": "/api/v2/user/avatar/upload",
     "status": 200,
-    "length": 300,
-    "token": "user_a_token",
-    "timestamp": 1715560010
+    "length": 450,
+    "token": "user_token_abc",
+    "headers": ["Content-Type: multipart/form-data; boundary=---123", "Content-Length: 1240"],
+    "timestamp": 1715560110
   },
   {
     "method": "GET",
-    "url": "/api/user/1",
+    "url": "/api/v1/view/download?file=../../../../etc/passwd",
+    "status": 200,
+    "length": 1800,
+    "token": "user_token_abc",
+    "timestamp": 1715560115
+  },
+  {
+    "method": "GET",
+    "url": "/api/v1/view/download?file=reports_2026_05.pdf",
+    "status": 200,
+    "length": 45000,
+    "token": "user_token_abc",
+    "timestamp": 1715560120
+  },
+  {
+    "method": "GET",
+    "url": "/api/v1/products/search?q=1%27%20UNION%20SELECT%20null,username,password%20FROM%20users--",
+    "status": 500,
+    "length": 340,
+    "token": null,
+    "timestamp": 1715560125
+  },
+  {
+    "method": "GET",
+    "url": "/api/v1/products/search?q=laptop",
+    "status": 200,
+    "length": 12000,
+    "token": null,
+    "timestamp": 1715560130
+  },
+  {
+    "method": "GET",
+    "url": "/api/v3/auth/oauth/callback?code=4f9a2c&state=security_check_passed",
+    "status": 200,
+    "length": 650,
+    "token": null,
+    "timestamp": 1715560135
+  },
+  {
+    "method": "GET",
+    "url": "/api/v3/auth/oauth/callback?code=invalid_code&state=attack_attempt",
+    "status": 401,
+    "length": 180,
+    "token": null,
+    "timestamp": 1715560140
+  },
+  {
+    "method": "GET",
+    "url": "/api/user/101",
     "status": 200,
     "length": 900,
-    "token": "user_a_token",
-    "timestamp": 1715560015
+    "token": "user_token_xyz",
+    "timestamp": 1715560145
   },
   {
     "method": "GET",
-    "url": "/api/user/2",
+    "url": "/api/user/102",
     "status": 200,
     "length": 910,
-    "token": "user_a_token",
-    "timestamp": 1715560020
-  },
-  {
-    "method": "GET",
-    "url": "/api/user/3",
-    "status": 403,
-    "length": 120,
-    "token": "user_a_token",
-    "timestamp": 1715560025
-  },
-  {
-    "method": "GET",
-    "url": "/api/profile",
-    "status": 200,
-    "length": 1000,
-    "token": "user_a_token",
-    "timestamp": 1715560030
+    "token": "user_token_xyz",
+    "timestamp": 1715560150
   },
   {
     "method": "GET",
     "url": "/api/admin/dashboard",
     "status": 403,
     "length": 200,
-    "token": "user_a_token",
-    "timestamp": 1715560035
-  },
-  {
-    "method": "POST",
-    "url": "/api/admin/login",
-    "status": 200,
-    "length": 350,
-    "token": "admin_token",
-    "timestamp": 1715560040
+    "token": "user_token_xyz",
+    "timestamp": 1715560155
   },
   {
     "method": "GET",
     "url": "/api/admin/dashboard",
     "status": 200,
     "length": 5000,
-    "token": "admin_token",
-    "timestamp": 1715560045
+    "token": "super_admin_token",
+    "timestamp": 1715560160
+  },
+  {
+    "method": "POST",
+    "url": "/api/v1/checkout/pay",
+    "status": 200,
+    "length": 450,
+    "token": "user_token_xyz",
+    "query": "amount=-100&qty=1",
+    "timestamp": 1715560165
   },
   {
     "method": "GET",
-    "url": "/api/admin/users",
+    "url": "/index.php",
     "status": 200,
-    "length": 8000,
-    "token": "admin_token",
-    "timestamp": 1715560050
-  },
-  {
-    "method": "GET",
-    "url": "/api/user/2",
-    "status": 200,
-    "length": 1500,
-    "token": "admin_token",
-    "timestamp": 1715560055
-  },
-  {
-    "method": "GET",
-    "url": "/api/user/3",
-    "status": 200,
-    "length": 1520,
-    "token": "admin_token",
-    "timestamp": 1715560060
+    "length": 15000,
+    "token": null,
+    "timestamp": 1715560170
   }
 ]
