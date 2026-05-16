@@ -17,7 +17,9 @@ def normalize_and_extract(req: dict) -> dict:
     url = req.get("url", "/")
     parsed = urlparse(url)
     path = parsed.path if parsed.path else "/"
+
     raw_path_last_segment = path.split("/")[-1] if "/" in path else ""
+    raw_query = parsed.query.lower() if parsed.query else ""
 
     uuid_pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     path = re.sub(f"/{uuid_pattern}", "/{uuid}", path)
@@ -35,22 +37,35 @@ def normalize_and_extract(req: dict) -> dict:
         "has_token": has_token,
         "param_count": param_count,
         "raw_segment": raw_path_last_segment,
+        "raw_query": raw_query,
         "raw_url": url
     }
 
 def heuristic(req):
     score = 0
     path = req["path"].lower()
+    query = req["raw_query"]
+
     if req["has_token"]: score += 5
     if "/api" in path: score += 5
     if any(x in path for x in ["/admin", "/user", "/account", "/profile"]): score += 8
     if req["status"] in (401, 403): score += 8
     elif req["status"] == 500: score += 5
     if req["param_count"] > 2: score += 3
+
+    if any(x in path for x in ["upload", "file", "download", "export", "import"]): score += 12
+    if any(x in query for x in ["url=", "redirect=", "link=", "src=", "host="]): score += 15
+    if any(x in query for x in ["file=", "path=", "dir=", "doc=", "template="]): score += 15
+    if any(x in query for x in ["q=", "search=", "name=", "text=", "msg=", "comment="]): score += 8
+
     return score
 
 SIGNAL_MAP = {
-    "auth_bypass_hint": 25,
+    "rce_file_upload_hint": 30,
+    "ssrf_candidate": 25,
+    "lfi_directory_traversal": 25,
+    "xss_injection_suspect": 15,
+    "auth_bypass_hint": 20,
     "unauthorized_access_observed": 20,
     "object_access_variance": 15,
     "auth_state_flip": 10,
@@ -70,25 +85,33 @@ def process_requests(requests_data):
     for key, req_list in grouped.items():
         method, path = key.split(":", 1)
         base = max(heuristic(r) for r in req_list)
+        path_low = path.lower()
         status_set = set(r["status"] for r in req_list)
         auth_set = set(r["has_token"] for r in req_list)
         segment_set = set(r["raw_segment"] for r in req_list)
+        query_combined = " ".join(r["raw_query"] for r in req_list)
 
         has_status_variance = len(status_set) > 1
         has_auth_variance = len(auth_set) > 1
-        has_object_variance = len(segment_set) > 1 and ("{id}" in path or "{uuid}" in path or "{hash}" in path)
+        has_object_variance = len(segment_set) > 1 and any(x in path_low for x in ["{id}", "{uuid}", "{hash}"])
 
+        if has_auth_variance: base += 5
         if has_status_variance: base += 4
-        if has_auth_variance: base += 4
-        if has_object_variance: base += 6 
-
-        if base < 5 and len(req_list) == 1:
-            continue
+        if has_object_variance: base += 5  
 
         llm = ask_llm(req_list, method, path)
         signals = llm.get("signals") or ["safe"]
 
-        if not is_idor_candidate_path := any(x in path.lower() for x in ["/user/", "/file/", "/order/", "/account/"]):
+        if not any(x in query_combined or x in path_low for x in ["url", "redirect", "link", "src", "host"]):
+            signals = [s for s in signals if s != "ssrf_candidate"]
+            
+        if not any(x in query_combined or x in path_low for x in ["file", "path", "dir", "doc", "download", "template"]):
+            signals = [s for s in signals if s != "lfi_directory_traversal"]
+
+        if method not in ("POST", "PUT") and "upload" not in path_low:
+            signals = [s for s in signals if s != "rce_file_upload_hint"]
+
+        if not any(x in path_low for x in ["{id}", "{uuid}", "{hash}", "/user/", "/file/", "/order/", "/account/"]):
             signals = [s for s in signals if s != "object_access_variance"]
 
         signal_score = sum(SIGNAL_MAP.get(s, 0) for s in signals)
@@ -108,7 +131,7 @@ def process_requests(requests_data):
             "score": round(final_score, 2),
             "method": method,
             "path": path,
-            "signals": signals,
+            "signals": signals if signals else ["safe"],
             "confidence": confidence
         })
 
