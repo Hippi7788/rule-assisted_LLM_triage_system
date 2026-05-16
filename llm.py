@@ -18,7 +18,7 @@ CRITICAL TRIAGE RULES:
 3. ADMIN ENDPOINTS: Admin endpoints should be treated as privilege boundary checks, not IDOR candidates unless object-level resources are involved.
 4. TEXT OUTPUT: Do not use repeated or templated sentences. Base all reasoning strictly on the provided request history. If evidence is insufficient, explicitly state uncertainty instead of inferring a vulnerability.
 
-🔍 NEW STRICT DIRECTIVES:
+NEW STRICT DIRECTIVES:
 - CONFIDENCE: Confidence must reflect evidence strength in the history matrix, not general intuition.
 - EVIDENCE ANCHOR: The "reason" MUST reference at least one specific observation index [i] from the history matrix to prove your deduction.
 - ALLOWED TAGS: The "tags" array must be selected ONLY from this whitelist: ["idor", "priv-esc", "auth-flow", "auth-bypass", "safe"]. Do not invent other tags.
