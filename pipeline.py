@@ -11,32 +11,30 @@ except:
     OWASP = {}
 
 SIGNAL_MAP = {}
-OWASP_INDEX = {}
+OWASP_INDEX = defaultdict(list)
+
 for v in OWASP.values():
     if isinstance(v, dict):
         sig_name = v.get("signal")
         if sig_name:
             SIGNAL_MAP[sig_name] = v.get("weight", 0)
-            OWASP_INDEX[sig_name] = v
+            OWASP_INDEX[sig_name].append(v)
 
 SIGNAL_MAP["safe"] = 0
-SIGNAL_MAP["auth_state_flip"] = 12
+SIGNAL_MAP["auth_flip"] = 12
 
 STATIC_EXT = {".js",".css",".png",".jpg",".jpeg",".gif",".svg",".ico",".woff",".woff2",".map"}
 
 def is_noise(url):
     if not url: return True
-    path = urlparse(url.lower()).path
-    if any(path.endswith(ext) for ext in STATIC_EXT):
-        if not any(x in path for x in ["/api", "/v", "/graphql", "doc", "swagger"]):
-            return True
-    return False
+    url_str = str(url).lower()
+    path = urlparse(url_str).path if "://" in url_str else url_str.split("?")
+    return any(path.endswith(ext) for ext in STATIC_EXT)
 
 def fuzzy_find_token(obj) -> str:
     obj_str = str(obj).lower()
     if not any(x in obj_str for x in ["token", "auth", "bearer", "cookie", "jwt", "session"]):
         return "none"
-
     if isinstance(obj, dict):
         for k, v in obj.items():
             k_low = str(k).lower()
@@ -49,7 +47,6 @@ def fuzzy_find_token(obj) -> str:
             if isinstance(v, (dict, list)):
                 res = fuzzy_find_token(v)
                 if res != "none": return res
-
     elif isinstance(obj, list):
         for item in obj:
             item_str = str(item).lower()
@@ -64,11 +61,16 @@ def fuzzy_find_token(obj) -> str:
 def normalize(req):
     url = req.get("url") or req.get("path") or "/"
     url_str = str(url)
-    p = urlparse(url_str) if "://" in url_str else None
-    
-    path = p.path if p else url_str.split("?")[0]
-    query = p.query.lower() if p else (url_str.split("?")[1].lower() if "?" in url_str else "")
+    if "://" in url_str:
+        p = urlparse(url_str)
+        path = p.path if p.path else "/"
+        query = p.query.lower() if p.query else ""
+    else:
+        parts = url_str.split("?")
+        path = parts[0] if parts else "/"
+        query = parts[1].lower() if len(parts) > 1 else ""
 
+    path = str(path)
     path = re.sub(r"/[0-9a-fA-F-]{8,}", "/{id}", path)
     path = re.sub(r"/\d+", "/{id}", path)
 
@@ -91,26 +93,21 @@ def heuristic(r):
     if "/api" in path_low: s += 5
     if r["status"] in (401,403): s += 8
     if r["status"] == 500: s += 5
-    
-    if any(x in path_low for x in ["/admin", "/user", "/account", "/profile"]):
-        s += 10
+    if any(x in path_low for x in ["/admin", "/user", "/account", "/profile"]): s += 10
     return s
 
 def apply_guardrails(signals, method, path, query, enforced_signals=None):
-    """
-    enforced_signals: 傳入由 Python 物理層基於鐵證強行激活的信號集合 (Set)
-    """
     path_l = path.lower()
     q = query.lower()
     filtered = []
-
+    
     enforced_set = set(enforced_signals) if enforced_signals else set()
 
     for s in signals:
         if s == "safe":
             filtered.append("safe")
             continue
-        if s == "auth_state_flip":
+        if s == "auth_state_flip" or s == "auth_flip":
             filtered.append(s)
             continue
 
@@ -118,17 +115,22 @@ def apply_guardrails(signals, method, path, query, enforced_signals=None):
             filtered.append(s)
             continue
 
-        rule = OWASP_INDEX.get(s)
-        if not rule: 
+        rules = OWASP_INDEX.get(s)
+        if not rules: 
             continue
 
         if s == "rce_file_upload_hint" and method not in ("POST", "PUT"):
             continue
 
-        has_path_match = any(k in path_l for k in rule.get("path_keywords", []))
-        has_param_match = any(k in q for k in rule.get("param_keywords", []))
+        passed = False
+        for rule in rules:
+            has_path_match = any(k in path_l for k in rule.get("path_keywords", []))
+            has_param_match = any(k in q for k in rule.get("param_keywords", []))
+            if has_path_match or has_param_match:
+                passed = True
+                break
 
-        if not (has_path_match or has_param_match):
+        if not passed:
             continue
 
         filtered.append(s)
@@ -150,6 +152,7 @@ def process_requests(data):
     for key, reqs in groups.items():
         method, path = key.split(":", 1)
         path_low = path.lower()
+        query_combined = " ".join(r["query"] for r in reqs)
 
         base = max(heuristic(r) for r in reqs)
 
@@ -163,37 +166,42 @@ def process_requests(data):
         if has_identity_variance: base += 8  
 
         llm = ask_llm(reqs, method, path)
-        signals = llm.get("signals") or ["safe"]
+        ai_signals = llm.get("signals") or ["safe"]
+
         python_enforced = set()
-
-        if any(x in path_low for x in ["{id}", "{uuid}", "{hash}"]) and 200 in status_set and 403 in status_set:
-            python_enforced.add("idor_sig")
-
-        if "admin" in path_low and "admin" in token_set and "user" in token_set:
-            python_enforced.add("priv_anomaly")
-
-        for es in python_enforced:
-            if es not in signals:
-                signals.append(es)
-
-        query = " ".join(r["query"] for r in reqs)
         
-        signals = apply_guardrails(signals, method, path, query, enforced_signals=python_enforced)
-        
-        signal_score = sum(SIGNAL_MAP.get(s, 0) for s in signals)
+        is_matrix_suspicious = has_status_variance or has_identity_variance or any(s in ai_signals for s in ["idor_sig", "auth_flip", "priv_anomaly"])
+
+        if is_matrix_suspicious:
+            for vuln_rule in OWASP.values():
+                target_signal = vuln_rule.get("signal")
+                
+                has_path_match = any(k in path_low for k in vuln_rule.get("path_keywords", []))
+                has_param_match = any(k in query_combined for k in vuln_rule.get("param_keywords", []))
+                
+                if has_path_match or has_param_match:
+                    if target_signal:
+                        if target_signal == "rce_file_upload_hint" and method not in ("POST", "PUT"):
+                            continue
+                        python_enforced.add(target_signal)
+
+        final_signals = list(set(ai_signals + list(python_enforced)))
+        final_signals = apply_guardrails(final_signals, method, path, query_combined, enforced_signals=python_enforced)
+        signal_score = sum(SIGNAL_MAP.get(s, 0) for s in final_signals)
 
         try:
             confidence = float(llm.get("confidence", 0.5))
         except (ValueError, TypeError):
             confidence = 0.5
         confidence = max(0.0, min(1.0, confidence))
+
         final = (base * 0.8 + signal_score * 0.2) * (0.75 + confidence * 0.5)
 
         results.append({
             "score": round(final, 2),
             "method": method,
             "path": path,
-            "signals": signals,
+            "signals": final_signals,
             "confidence": confidence
         })
 
