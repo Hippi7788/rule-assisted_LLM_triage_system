@@ -43,7 +43,7 @@
   },
   "A05:Security Misconfiguration (XML/XXE)": {
     "signal": "xxe_injection",
-    "path_keywords": ["xml", "soap", "saml", "api", "parse"],
+    "path_keywords": ["xml", "soap", "saml", "parse"],
     "param_keywords": ["xml", "data", "body", "doc", "payload"],
     "weight": 26
   },
