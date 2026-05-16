@@ -1,7 +1,9 @@
 from filter import filter_request
-from llm import ask_llm
+from llm import ask_llm_with_context
+from collections import defaultdict
 
 def heuristic_score(req: dict) -> int:
+    """啟發式評分：作為先驗知識修正值（Base Priority）"""
     score = 0
     path = req["path"].lower()
 
@@ -30,36 +32,42 @@ def heuristic_score(req: dict) -> int:
 
 def process_requests(requests_data: list) -> list:
     results = []
-    seen_endpoints = set()
+    api_groups = defaultdict(list)
 
     for req in requests_data:
         cleaned = filter_request(req)
         if not cleaned:
             continue
-
-        fingerprint = f"{cleaned['method']}:{cleaned['path']}:{cleaned['status']}"
-        if fingerprint in seen_endpoints:
-            continue
         
-        base = heuristic_score(cleaned)
+        group_key = f"{cleaned['method']}:{cleaned['path']}"
 
-        if base < 5: 
+        if any(r['status'] == cleaned['status'] and r['has_token'] == cleaned['has_token'] for r in api_groups[group_key]):
+            continue
+            
+        api_groups[group_key].append(cleaned)
+
+    for group_key, req_list in api_groups.items():
+        method, path = group_key.split(":", 1)
+        base = max(heuristic_score(r) for r in req_list)
+
+        if base < 5 and len(req_list) == 1:
             continue
 
-        seen_endpoints.add(fingerprint)
-
-        llm_result = ask_llm(cleaned)
+        llm_result = ask_llm_with_context(method, path, req_list)
+        
         llm_score = llm_result.get("score", 0)
-
-        final_score = llm_score + (base * 0.3)
+        confidence = llm_result.get("confidence", 0.5)
+        final_score = llm_score + (confidence * 10) + (base * 0.3)
 
         results.append({
             "score": round(final_score, 2),
-            "path": cleaned["path"],
-            "method": cleaned["method"],
-            "status": cleaned["status"],
+            "path": path,
+            "method": method,
+            "status_variants": [r['status'] for r in req_list],
+            "confidence": confidence,
             "tags": llm_result.get("tags", []),
             "reason": llm_result.get("reason", "")
         })
 
+    # 依最終總分由高到低排序
     return sorted(results, key=lambda x: x["score"], reverse=True)
