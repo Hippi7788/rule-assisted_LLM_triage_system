@@ -28,13 +28,11 @@ STATIC_EXT = {".js",".css",".png",".jpg",".jpeg",".gif",".svg",".ico",".woff",".
 def is_noise(url):
     if not url: return True
     url_str = str(url).lower()
-    
     if "://" in url_str:
         path = urlparse(url_str).path if urlparse(url_str).path else "/"
     else:
         parts = url_str.split("?")
         path = parts[0] if parts else "/"
-        
     path_str = str(path)
     return any(path_str.endswith(ext) for ext in STATIC_EXT)
 
@@ -68,14 +66,13 @@ def fuzzy_find_token(obj) -> str:
 def normalize(req):
     url = req.get("url") or req.get("path") or "/"
     url_str = str(url)
-    
     if "://" in url_str:
         p = urlparse(url_str)
         path = p.path if p.path else "/"
         query = p.query.lower() if p.query else ""
     else:
         parts = url_str.split("?")
-        path = parts[0] if parts else "/" 
+        path = parts[0] if parts else "/"
         query = parts[1].lower() if len(parts) > 1 else ""
 
     path = str(path)
@@ -108,8 +105,10 @@ def apply_guardrails(signals, method, path, query, enforced_signals=None):
     path_l = path.lower()
     q = query.lower()
     filtered = []
-    
     enforced_set = set(enforced_signals) if enforced_signals else set()
+
+    path_tokens = set(re.split(r'[^a-zA-Z0-9_{}]', path_l))
+    query_tokens = set(re.split(r'[^a-zA-Z0-9_{}]', q))
 
     for s in signals:
         if s == "safe":
@@ -118,29 +117,25 @@ def apply_guardrails(signals, method, path, query, enforced_signals=None):
         if s == "auth_state_flip" or s == "auth_flip":
             filtered.append(s)
             continue
-
         if s in enforced_set:
             filtered.append(s)
             continue
 
         rules = OWASP_INDEX.get(s)
-        if not rules: 
-            continue
+        if not rules: continue
 
         if s == "rce_file_upload_hint" and method not in ("POST", "PUT"):
             continue
 
         passed = False
         for rule in rules:
-            has_path_match = any(k in path_l for k in rule.get("path_keywords", []))
-            has_param_match = any(k in q for k in rule.get("param_keywords", []))
+            has_path_match = bool(path_tokens.intersection(set(rule.get("path_keywords", []))))
+            has_param_match = bool(query_tokens.intersection(set(rule.get("param_keywords", []))))
             if has_path_match or has_param_match:
                 passed = True
                 break
 
-        if not passed:
-            continue
-
+        if not passed: continue
         filtered.append(s)
 
     if len(filtered) > 1 and "safe" in filtered:
@@ -163,7 +158,6 @@ def process_requests(data):
         query_combined = " ".join(r["query"] for r in reqs)
 
         base = max(heuristic(r) for r in reqs)
-
         status_set = set(r["status"] for r in reqs)
         token_set = set(r["token_label"] for r in reqs)
         
@@ -180,17 +174,25 @@ def process_requests(data):
         is_matrix_suspicious = has_status_variance or has_identity_variance or any(s in ai_signals for s in ["idor_sig", "auth_flip", "priv_anomaly"])
 
         if is_matrix_suspicious:
+            path_tokens = set(re.split(r'[^a-zA-Z0-9_{}]', path_low))
+            query_tokens = set(re.split(r'[^a-zA-Z0-9_{}]', query_combined))
+
             for vuln_rule in OWASP.values():
                 target_signal = vuln_rule.get("signal")
+                if not target_signal: continue
                 
-                has_path_match = any(k in path_low for k in vuln_rule.get("path_keywords", []))
-                has_param_match = any(k in query_combined for k in vuln_rule.get("param_keywords", []))
+                path_keywords_set = set(vuln_rule.get("path_keywords", []))
+                param_keywords_set = set(vuln_rule.get("param_keywords", []))
+                
+                has_path_match = bool(path_tokens.intersection(path_keywords_set))
+                has_param_match = bool(query_tokens.intersection(param_keywords_set))
                 
                 if has_path_match or has_param_match:
-                    if target_signal:
-                        if target_signal == "rce_file_upload_hint" and method not in ("POST", "PUT"):
-                            continue
-                        python_enforced.add(target_signal)
+                    if target_signal == "idor_write_delete" and method not in ("POST", "PUT", "DELETE"):
+                        continue
+                    if target_signal == "rce_file_upload_hint" and method not in ("POST", "PUT"):
+                        continue
+                    python_enforced.add(target_signal)
 
         final_signals = list(set(ai_signals + list(python_enforced)))
         final_signals = apply_guardrails(final_signals, method, path, query_combined, enforced_signals=python_enforced)
