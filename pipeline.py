@@ -91,25 +91,30 @@ def heuristic(r):
     if "/api" in path_low: s += 5
     if r["status"] in (401,403): s += 8
     if r["status"] == 500: s += 5
+    
     if any(x in path_low for x in ["/admin", "/user", "/account", "/profile"]):
         s += 10
     return s
 
-def apply_guardrails(signals, method, path, query):
+def apply_guardrails(signals, method, path, query, enforced_signals=None):
+    """
+    enforced_signals: 傳入由 Python 物理層基於鐵證強行激活的信號集合 (Set)
+    """
     path_l = path.lower()
     q = query.lower()
     filtered = []
+
+    enforced_set = set(enforced_signals) if enforced_signals else set()
 
     for s in signals:
         if s == "safe":
             filtered.append("safe")
             continue
-            
         if s == "auth_state_flip":
             filtered.append(s)
             continue
 
-        if s in ["idor_sig", "priv_anomaly"]:
+        if s in enforced_set:
             filtered.append(s)
             continue
 
@@ -130,7 +135,6 @@ def apply_guardrails(signals, method, path, query):
 
     if len(filtered) > 1 and "safe" in filtered:
         filtered = [f for f in filtered if f != "safe"]
-        
     return filtered or ["safe"]
 
 def process_requests(data):
@@ -156,21 +160,25 @@ def process_requests(data):
         has_identity_variance = len(token_set) > 1
 
         if has_status_variance: base += 6
-        if has_identity_variance: base += 8
+        if has_identity_variance: base += 8  
 
         llm = ask_llm(reqs, method, path)
         signals = llm.get("signals") or ["safe"]
+        python_enforced = set()
 
         if any(x in path_low for x in ["{id}", "{uuid}", "{hash}"]) and 200 in status_set and 403 in status_set:
-            if "object_access_variance" not in signals and "idor_sig" not in signals:
-                signals.append("idor_sig")
+            python_enforced.add("idor_sig")
 
         if "admin" in path_low and "admin" in token_set and "user" in token_set:
-            if "unauthorized_access_observed" not in signals and "priv_anomaly" not in signals:
-                signals.append("priv_anomaly")
+            python_enforced.add("priv_anomaly")
+
+        for es in python_enforced:
+            if es not in signals:
+                signals.append(es)
 
         query = " ".join(r["query"] for r in reqs)
-        signals = apply_guardrails(signals, method, path, query)
+        
+        signals = apply_guardrails(signals, method, path, query, enforced_signals=python_enforced)
         
         signal_score = sum(SIGNAL_MAP.get(s, 0) for s in signals)
 
@@ -179,7 +187,6 @@ def process_requests(data):
         except (ValueError, TypeError):
             confidence = 0.5
         confidence = max(0.0, min(1.0, confidence))
-
         final = (base * 0.8 + signal_score * 0.2) * (0.75 + confidence * 0.5)
 
         results.append({
